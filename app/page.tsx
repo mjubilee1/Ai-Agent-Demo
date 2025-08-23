@@ -11,10 +11,7 @@ export default function Home() {
   const [actions, setActions] = useState<Action[]>([
     { id: "a1", title: "Create Trello card: 'Follow up on pricing'", desc: "From inbox thread", status: "proposed" },
   ]);
-  const [chunks, setChunks] = useState<Chunk[]>([
-    { source: "docs/intro.md", snippet: "Agent uses Pinecone for retrieval; chunk size ~800 tokens..." },
-    { source: "email:client-thread", snippet: "Client asks for proposal and a kickoff calendar invite..." },
-  ]);
+  const [chunks, setChunks] = useState<Chunk[]>([]);
   const [loading, setLoading] = useState(false);
 
   // --- inline styles ---

@@ -1,23 +1,23 @@
-import { Pinecone } from "@pinecone-database/pinecone";
+import { Pinecone } from '@pinecone-database/pinecone';
 import 'dotenv/config';
 
 async function main() {
   const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
 
-  const indexName = process.env.PINECONE_INDEX!;
+  const name = process.env.PINECONE_INDEX || 'ai-agent-demo-1536';
 
-  await pc.createIndexForModel({
-    name: indexName,
-    cloud: "aws",
-    region: "us-east-1",
-    embed: {
-      model: "llama-text-embed-v2",
-      fieldMap: { text: "chunk_text" },
+  await pc.createIndex({
+    name,
+    dimension: 1536,             // <— matches OpenAI text-embedding-3-small
+    metric: 'cosine',
+    spec: {
+      serverless: {
+        cloud: 'aws',
+        region: 'us-east-1',
+      },
     },
-    waitUntilReady: true,
   });
 
-  console.log(`✅ Index '${indexName}' created`);
+  console.log(`✅ Created index ${name} (1536-dim)`);
 }
-
 main().catch(console.error);

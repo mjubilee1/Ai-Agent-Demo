@@ -7,7 +7,7 @@ const pineIndex = pine.Index(process.env.PINECONE_INDEX!);
 
 export async function retrieve(query: string, topK = 6) {
     const emb = await openai.embeddings.create({
-      model: 'text-embedding-3-large',
+      model: 'text-embedding-3-small',
       input: query,
     });
     const vector = emb.data[0].embedding;
@@ -18,15 +18,10 @@ export async function retrieve(query: string, topK = 6) {
       includeMetadata: true,
     });
   
-    return (res.matches || [])
-      .map((m) => ({
-        score: m.score ?? 0,
-        source: (m.metadata as any)?.source ?? (m.id || 'unknown'),
-        snippet:
-          ((m.metadata as any)?.text as string) ||
-          ((m.metadata as any)?.chunk_text as string) ||
-          '',
-      }))
-      .filter((c) => c.snippet);
+    return (res.matches ?? []).map(m => ({
+      source: (m.metadata as any)?.source || m.id,
+      snippet: (m.metadata as any)?.text || '',
+      score: m.score,
+    }));
   }
   

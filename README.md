@@ -24,7 +24,7 @@ A TypeScript demo showcasing how to **build and deploy an AI agent** that can:
 ## 🧰 Tech Stack
 - **Language:** TypeScript  
 - **LLM:** Anthropic Claude (Sonnet)  
-- **Embeddings:** OpenAI `text-embedding-3-large`  
+- **Embeddings:** OpenAI `text-embedding-3-small`  
 - **Vector DB:** Pinecone  
 - **Database:** Postgres  
 - **Web/API:** Hono or Express  
