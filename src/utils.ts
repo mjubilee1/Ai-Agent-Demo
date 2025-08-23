@@ -21,7 +21,7 @@ export async function retrieve(query: string, topK = 6) {
   
     return (res.matches ?? []).map(m => ({
       source: (m.metadata as any)?.source || m.id,
-      snippet: (m.metadata as any)?.text || '',
+      snippet: (m.metadata as any)?.text || (m.metadata as any)?.preview || '',
       score: m.score,
     }));
   }
