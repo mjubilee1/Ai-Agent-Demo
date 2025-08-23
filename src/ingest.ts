@@ -1,32 +1,33 @@
-// src/ingest.ts
-import { Pinecone } from '@pinecone-database/pinecone';
-import 'dotenv/config';
-import OpenAI from 'openai';
+import { Pinecone } from "@pinecone-database/pinecone";
+import crypto from "node:crypto";
+import { embedTexts } from "./utils";
 
 const pc = new Pinecone({ apiKey: process.env.PINECONE_API_KEY! });
 const index = pc.Index(process.env.PINECONE_INDEX!);
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
 
-async function ingest(id: string, text: string, source: string) {
-  const chunks = [text];
+type ChatMsg = { role: "user" | "assistant"; text: string; ts?: number };
 
-  const embeddings = await openai.embeddings.create({
-    model: 'text-embedding-3-small',
-    input: chunks,
-  });
+export async function ingestChat(sessionId: string, msgs: ChatMsg[]) {
+  // dedupe id by hashing (sessionId + role + text)
+  const ids = msgs.map(m =>
+    crypto.createHash("sha1").update(`${sessionId}:${m.role}:${m.text}`).digest("hex")
+  );
+
+  const vectors = await embedTexts(msgs.map(m => m.text));
+  const now = Date.now();
 
   await index.upsert(
-    embeddings.data.map((e, i) => ({
-      id: `${id}-${i}`,
-      values: e.embedding,
+    vectors.map((v, i) => ({
+      id: ids[i],
+      values: v,
       metadata: {
-        text: chunks[i],
-        source,
+        kind: "chat",
+        sessionId,
+        role: msgs[i].role,
+        ts: msgs[i].ts ?? now,
+        source: `chat://${sessionId}#${msgs[i].role}/${msgs[i].ts ?? now}`,
+        preview: msgs[i].text.slice(0, 240),
       },
     }))
   );
-
-  console.log(`✅ Ingested ${chunks.length} chunk(s) from ${source}`);
 }
-
-ingest('doc1', 'Agent uses Pinecone for retrieval; chunk size ~800 tokens...', 'docs/intro.md');

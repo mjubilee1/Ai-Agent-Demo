@@ -1,11 +1,10 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 type Action = { id: string; title: string; desc?: string; status: "proposed" | "approved" | "rejected" };
 type Chunk = { source: string; snippet: string };
 
 export default function Home() {
-  // --- demo state ---
   const [message, setMessage] = useState("");
   const [log, setLog] = useState<string[]>([]);
   const [actions, setActions] = useState<Action[]>([
@@ -13,6 +12,15 @@ export default function Home() {
   ]);
   const [chunks, setChunks] = useState<Chunk[]>([]);
   const [loading, setLoading] = useState(false);
+  const [sessionId, setSessionId] = useState<string>("");
+
+  useEffect(() => {
+    const existing = localStorage.getItem("agent.sessionId");
+    if (existing) return setSessionId(existing);
+    const id = crypto.randomUUID(); 
+    localStorage.setItem("agent.sessionId", id);
+    setSessionId(id);
+  }, []);
 
   // --- inline styles ---
   const s = useMemo(() => {
@@ -147,7 +155,7 @@ export default function Home() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: "demo", message }),
+        body: JSON.stringify({ sessionId, message }),
       });
       const data = await res.json();
       setLog((l) => [...l, `🤖 ${data?.reply?.text ?? "Agent stub response."}`]);

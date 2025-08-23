@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import 'dotenv/config';
 import { Hono } from 'hono';
+import { ingestChat } from "./ingest";
 import { retrieve } from './utils';
 
 const app = new Hono();
@@ -11,9 +12,9 @@ app.get('/', (c) => c.text('🤖 AI Agent backend running!'));
 app.post('/chat', async (c) => {
     const body =
       (await c.req.json<{ sessionId?: string; message: string }>().catch(() => null)) ||
-      { sessionId: 'demo', message: '' };
+      { sessionId: '', message: '' };
   
-    const { message } = body;
+    const { sessionId, message } = body;
     if (!message?.trim()) {
       return c.json(
         { reply: { text: 'Please provide a message.', proposedActions: [], chunks: [] } },
@@ -75,6 +76,11 @@ app.post('/chat', async (c) => {
       text = `You said: "${message}". (Note: plan JSON parse failed; showing fallback.)`;
     }
   
+    await ingestChat(sessionId, [
+        { role: "user", text: message, ts: Date.now() },
+        { role: "assistant", text: text, ts: Date.now() + 1 },
+      ]);
+      
     return c.json({
       reply: {
         text,
