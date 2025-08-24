@@ -4,14 +4,26 @@ import { Hono } from 'hono';
 import { ingestChat } from "./ingest";
 import { retrieve } from './utils';
 
+type ProposedAction = {
+    id: string;
+    title: string;
+    desc?: string;
+    status: "proposed" | "approved" | "rejected";
+    tool?: string;
+    payload?: any;
+};
+
 const app = new Hono();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+
+// in-memory store: sessionId -> (proposalId -> ProposedAction)
+const actionsBySession = new Map<string, Map<string, ProposedAction>>();
 
 app.get('/', (c) => c.text('🤖 AI Agent backend running!'));
 
 app.post('/chat', async (c) => {
     const body =
-      (await c.req.json<{ sessionId?: string; message: string }>().catch(() => null)) ||
+      (await c.req.json<{ sessionId: string; message: string }>().catch(() => null)) ||
       { sessionId: '', message: '' };
   
     const { sessionId, message } = body;
@@ -76,6 +88,15 @@ app.post('/chat', async (c) => {
       text = `You said: "${message}". (Note: plan JSON parse failed; showing fallback.)`;
     }
   
+    const store = actionsBySession.get(sessionId) ?? new Map<string, ProposedAction>();
+    const withIds: ProposedAction[] = proposedActions.map((a) => {
+        const id = crypto.randomUUID();
+        const rec: ProposedAction = { id, title: a.title, desc: a.desc, status: "proposed" };
+        store.set(id, rec);
+        return rec;
+    });
+    actionsBySession.set(sessionId, store);
+
     await ingestChat(sessionId, [
         { role: "user", text: message, ts: Date.now() },
         { role: "assistant", text: text, ts: Date.now() + 1 },
@@ -84,11 +105,40 @@ app.post('/chat', async (c) => {
     return c.json({
       reply: {
         text,
-        proposedActions,
+        proposedActions: withIds,
         chunks: chunks.map((c) => ({ source: c.source, snippet: c.snippet })),
       },
     });
   });
-  
 
+app.post("/approve", async (c) => {
+    const { sessionId, proposalId, approve } =
+      (await c.req.json().catch(() => ({}))) as { sessionId?: string; proposalId?: string; approve?: boolean };
+  
+    if (!sessionId || !proposalId || typeof approve !== "boolean") {
+      return c.json({ error: "Missing sessionId/proposalId/approve" }, 400);
+    }
+  
+    const store = actionsBySession.get(sessionId);
+    if (!store) return c.json({ error: "No actions for session" }, 404);
+  
+    const action = store.get(proposalId);
+    if (!action) return c.json({ error: "Proposal not found" }, 404);
+  
+    action.status = approve ? "approved" : "rejected";
+    store.set(proposalId, action);
+  
+    // TODO: if approved, actually execute the tool (Trello/Calendar/etc.)
+    if (approve) console.log("✅ Executing action:", action);
+  
+    return c.json({ action });
+  });
+  
+  app.get("/actions", (c) => {
+    const sessionId = c.req.query("sessionId");
+    const store = sessionId ? actionsBySession.get(sessionId) : undefined;
+    const actions = store ? Array.from(store.values()) : [];
+    return c.json({ actions });
+  });
+  
 export default app;

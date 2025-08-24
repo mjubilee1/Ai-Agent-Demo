@@ -7,9 +7,7 @@ type Chunk = { source: string; snippet: string };
 export default function Home() {
   const [message, setMessage] = useState("");
   const [log, setLog] = useState<string[]>([]);
-  const [actions, setActions] = useState<Action[]>([
-    { id: "a1", title: "Create Trello card: 'Follow up on pricing'", desc: "From inbox thread", status: "proposed" },
-  ]);
+  const [actions, setActions] = useState<Action[]>([]);
   const [chunks, setChunks] = useState<Chunk[]>([]);
   const [loading, setLoading] = useState(false);
   const [sessionId, setSessionId] = useState<string>("");
@@ -172,6 +170,9 @@ export default function Home() {
           ...prev,
         ]);
       }
+      if (Array.isArray(data?.reply?.proposedActions)) {
+        setActions((prev) => [...data.reply.proposedActions!, ...prev]);
+      }
       if (data?.reply?.chunks?.length) {
         setChunks(data.reply.chunks);
       }
@@ -183,10 +184,24 @@ export default function Home() {
     }
   }
 
-  function approve(id: string, yes: boolean) {
-    setActions((items) =>
-      items.map((a) => (a.id === id ? { ...a, status: yes ? "approved" : "rejected" } : a))
-    );
+  async function approve(proposalId: string, yes: boolean) {
+    setActions(items => items.map(a => a.id === proposalId ? { ...a, status: yes ? "approved" : "rejected" } : a));
+  
+    try {
+      const res = await fetch("/api/approve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, proposalId, approve: yes }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data?.action) {
+        throw new Error(data?.error || "Approval failed");
+      }
+      setActions(items => items.map(a => (a.id === data.action.id ? { ...a, status: data.action.status } : a)));
+    } catch (e) {
+      setActions(items => items.map(a => (a.id === proposalId ? { ...a, status: "proposed" } : a)));
+      alert("Failed to update action. Check server logs.");
+    }
   }
 
   return (
@@ -273,7 +288,7 @@ export default function Home() {
                     {a.desc ? <div style={{ opacity: 0.8, fontSize: 13 }}>{a.desc}</div> : null}
                     <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
                       <button style={s.btnGhost} onClick={() => approve(a.id, true)}>Approve</button>
-                      <button style={s.btnGhost} onClick={() => approve(a.id, false)}>Reject</button>
+                      <button style={s.btnGhost} onClick={() => setActions(actions.filter(action => action.id !== a.id))}>Reject</button>
                     </div>
                   </div>
                   <div style={s.badge(a.status)}>{a.status}</div>
