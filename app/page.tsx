@@ -221,12 +221,6 @@ export default function Home() {
           <div style={{ display: "flex", gap: 8 }}>
             <button
               style={s.btnGhost}
-              onClick={() => window.open("https://render.com/deploy?repo=https://github.com/mjubilee1/Ai-Agent-Demo", "_blank")}
-            >
-              Deploy on Render
-            </button>
-            <button
-              style={s.btnGhost}
               onClick={() => window.open("https://www.pinecone.io", "_blank")}
             >
               Pinecone
