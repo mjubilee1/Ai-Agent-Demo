@@ -1,0 +1,39 @@
+services:
+  - name: ai-agent-backend
+    type: web
+    env: node
+    plan: starter
+    runtime: node
+    buildCommand: |
+      pnpm install --frozen-lockfile
+    startCommand: pnpm tsx src/server.ts
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: PINECONE_INDEX
+        value: ai-agent-demo-1536
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+
+  - name: ai-agent-frontend
+    type: web
+    env: node
+    plan: starter
+    runtime: node
+    buildCommand: |
+      pnpm install --frozen-lockfile
+      pnpm build
+    startCommand: pnpm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      # Wire the backend URL into the Next server at runtime:
+      - key: BACKEND_URL
+        fromService:
+          name: ai-agent-backend
+          type: web
+          property: url
