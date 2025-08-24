@@ -3,7 +3,6 @@ services:
     type: web
     env: node
     plan: starter
-    runtime: node
     buildCommand: |
       pnpm install --frozen-lockfile
     startCommand: pnpm tsx src/server.ts
@@ -18,12 +17,13 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY
         sync: false
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
 
   - name: ai-agent-frontend
     type: web
     env: node
     plan: starter
-    runtime: node
     buildCommand: |
       pnpm install --frozen-lockfile
       pnpm build
@@ -31,9 +31,10 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
-      # Wire the backend URL into the Next server at runtime:
-      - key: BACKEND_URL
+      - key: BACKEND_HOST
         fromService:
           name: ai-agent-backend
           type: web
-          property: url
+          property: host
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
