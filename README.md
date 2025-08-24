@@ -5,7 +5,7 @@ A TypeScript demo showcasing how to **build and deploy an AI agent** that can:
 - Retrieve context with RAG (retrieval-augmented generation)  
 - Plan and call tools (web search, calendar, task management)  
 - Run with **human-in-the-loop approvals**  
-- Deploy easily on **Render**
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/mjubilee1/Ai-Agent-Demo)
 
 ---
 
