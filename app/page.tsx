@@ -198,7 +198,7 @@ export default function Home() {
         throw new Error(data?.error || "Approval failed");
       }
       setActions(items => items.map(a => (a.id === data.action.id ? { ...a, status: data.action.status } : a)));
-      window.alert(`✅ Demo: would now execute (e.g., Trello/Calendar). In this demo, no external tools are called.`);
+      window.alert(`✅ Demo: " would now execute (e.g., Trello/Calendar). In this demo, no external tools are called.`);
 
     } catch (e) {
       setActions(items => items.map(a => (a.id === proposalId ? { ...a, status: "proposed" } : a)));
