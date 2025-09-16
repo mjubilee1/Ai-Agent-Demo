@@ -3,142 +3,433 @@ import 'dotenv/config';
 import { Hono } from 'hono';
 import { ingestChat } from "./ingest";
 import { retrieve } from './utils';
-
-type ProposedAction = {
-    id: string;
-    title: string;
-    desc?: string;
-    status: "proposed" | "approved" | "rejected";
-    tool?: string;
-    payload?: any;
-};
+import { 
+  ChatRequestSchema, 
+  ParseIntentRequestSchema, 
+  SendDocsRequestSchema, 
+  ApproveRequestSchema,
+  DocuSealWebhookSchema,
+  DealIntentSchema,
+  DOCUMENT_RULES,
+  DocumentRuleKey
+} from './types';
+import { DealIntentParser } from './services/dealIntentParser';
+import { DocumentAutomation } from './services/documentAutomation';
+import { DocuSealService } from './services/docuSealService';
+import { SessionManager } from './services/sessionManager';
 
 const app = new Hono();
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
-// in-memory store: sessionId -> (proposalId -> ProposedAction)
-const actionsBySession = new Map<string, Map<string, ProposedAction>>();
-
 app.get('/', (c) => c.text('🤖 AI Agent backend running!'));
 
 app.post('/chat', async (c) => {
-    const body =
-      (await c.req.json<{ sessionId: string; message: string }>().catch(() => null)) ||
-      { sessionId: '', message: '' };
-  
-    const { sessionId, message } = body;
+  try {
+    const body = await c.req.json();
+    const validatedBody = ChatRequestSchema.parse(body);
+    const { sessionId, message, jurisdiction, context } = validatedBody;
+
     if (!message?.trim()) {
       return c.json(
         { reply: { text: 'Please provide a message.', proposedActions: [], chunks: [] } },
         400
       );
     }
-  
-    // 1) Retrieval
+
+    // Get current session
+    const session = SessionManager.getSession(sessionId);
+    
+    // Parse deal intent from message
+    const intentResult = await DealIntentParser.parseIntent(message);
+    
+    // Update session with new deal intent
+    SessionManager.updateDealIntent(sessionId, intentResult.values);
+    
+    // Get suggested documents based on deal intent
+    const suggestedDocs = DocumentAutomation.getSuggestedDocuments(intentResult.values);
+    
+    // Validate document requirements
+    const docValidation = DocumentAutomation.validateDocumentRequirements(
+      suggestedDocs.all,
+      intentResult.values
+    );
+
+    // Generate follow-up questions for missing fields
+    const followUpQuestions = DealIntentParser.generateFollowUpQuestions(
+      intentResult.missingFields,
+      intentResult.values
+    );
+
+    // Validate deal completeness
+    const completeness = DealIntentParser.validateDealCompleteness(intentResult.values);
+
+    // 1) Retrieval for context
     const chunks = await retrieve(message, 6);
-  
-    // 2) Ask Claude to propose actions (JSON-only)
+
+    // 2) Generate AI response with deal context
     const contextBlock = chunks
       .slice(0, 6)
       .map((c, i) => `#${i + 1} [${c.source}] ${c.snippet}`)
       .join('\n---\n');
-  
-    const sys = `
-  You are an AI planning agent. Use the retrieved evidence to respond briefly
-  and propose zero or more actions the user might want. Return STRICT JSON:
-  {
-    "text": string,               // one-paragraph reply
-    "actions": [                  // optional
-      { "title": string, "desc": string }
-    ]
-  }
-  Do not include any other keys.`;
-  
-    const userContent = `User message:\n${message}\n\nRetrieved evidence:\n${contextBlock}`;
-  
+
+    const dealContext = `
+Current Deal State:
+${JSON.stringify(intentResult.values, null, 2)}
+
+Missing Fields: ${intentResult.missingFields.join(', ')}
+Confidence: ${intentResult.confidence}
+`;
+
+    const sys = `You are an expert real estate deal assistant. Help users complete their deals by:
+1. Acknowledging their intent
+2. Asking for missing information when needed
+3. Suggesting relevant documents and actions
+4. Providing clear next steps
+
+Current jurisdiction: ${jurisdiction || 'MD'}
+
+Return STRICT JSON:
+{
+  "text": string,               // helpful response
+  "actions": [                  // optional actions
+    { "title": string, "desc": string, "tool": string }
+  ]
+}`;
+
+    const userContent = `User message:\n${message}\n\nDeal Context:\n${dealContext}\n\nRetrieved evidence:\n${contextBlock}`;
+
     const msg = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20240620',
-      max_tokens: 600,
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 800,
       system: sys,
       messages: [{ role: 'user', content: userContent }],
     });
-  
+
     // 3) Parse Claude JSON safely
-    let text = `You said: "${message}".`;
-    let proposedActions: Array<{ title: string; desc?: string }> = [];
-  
+    let text = `I understand you're working on a real estate deal. Let me help you with that.`;
+    let proposedActions: Array<{ title: string; desc?: string; tool?: string }> = [];
+
     try {
       const raw = msg.content
         .map((p) => ('text' in p ? p.text : ''))
         .join('')
         .trim();
-  
-      // Attempt to extract JSON (in case Claude wraps it)
+
       const jsonStrMatch = raw.match(/\{[\s\S]*\}$/);
       const parsed = JSON.parse(jsonStrMatch ? jsonStrMatch[0] : raw);
-  
+
       if (parsed?.text) text = parsed.text;
-      if (Array.isArray(parsed?.actions))
+      if (Array.isArray(parsed?.actions)) {
         proposedActions = parsed.actions.map((a: any) => ({
           title: String(a.title || 'Proposed action'),
           desc: a.desc ? String(a.desc) : undefined,
+          tool: a.tool ? String(a.tool) : undefined,
         }));
-    } catch {
-      // Fallback if parsing fails
-      text = `You said: "${message}". (Note: plan JSON parse failed; showing fallback.)`;
+      }
+    } catch (error) {
+      console.error('Error parsing AI response:', error);
     }
-  
-    const store = actionsBySession.get(sessionId) ?? new Map<string, ProposedAction>();
-    const withIds: ProposedAction[] = proposedActions.map((a) => {
-        const id = crypto.randomUUID();
-        const rec: ProposedAction = { id, title: a.title, desc: a.desc, status: "proposed" };
-        store.set(id, rec);
-        return rec;
+
+    // Add system-generated actions based on deal state
+    if (intentResult.missingFields.length > 0) {
+      proposedActions.push({
+        title: 'Request Missing Information',
+        desc: `Need: ${intentResult.missingFields.join(', ')}`,
+        tool: 'request-info',
+      });
+    }
+
+    if (completeness.isComplete && suggestedDocs.all.length > 0) {
+      proposedActions.push({
+        title: 'Prepare Documents',
+        desc: `Ready to prepare ${suggestedDocs.all.length} document(s)`,
+        tool: 'prefill-docs',
+      });
+    }
+
+    if (docValidation.valid && suggestedDocs.all.length > 0) {
+      proposedActions.push({
+        title: 'Send for Signature',
+        desc: `Send ${suggestedDocs.all.length} document(s) to parties`,
+        tool: 'send-docs',
+      });
+    }
+
+    // Add actions to session
+    const withIds = proposedActions.map((a) => {
+      const id = crypto.randomUUID();
+      const action = { 
+        id, 
+        title: a.title, 
+        desc: a.desc, 
+        status: "proposed" as const,
+        tool: a.tool,
+        payload: {
+          suggestedDocs: suggestedDocs.all,
+          dealIntent: intentResult.values,
+        },
+      };
+      SessionManager.addAction(sessionId, action);
+      return action;
     });
-    actionsBySession.set(sessionId, store);
+
+    // Store messages
+    SessionManager.addMessage(sessionId, 'user', message);
+    SessionManager.addMessage(sessionId, 'assistant', text);
 
     await ingestChat(sessionId, [
-        { role: "user", text: message, ts: Date.now() },
-        { role: "assistant", text: text, ts: Date.now() + 1 },
-      ]);
-      
+      { role: "user", text: message, ts: Date.now() },
+      { role: "assistant", text: text, ts: Date.now() + 1 },
+    ]);
+
     return c.json({
       reply: {
         text,
         proposedActions: withIds,
         chunks: chunks.map((c) => ({ source: c.source, snippet: c.snippet })),
+        dealSummary: {
+          currentValues: intentResult.values,
+          missingFields: intentResult.missingFields,
+          flaggedIssues: completeness.flaggedIssues,
+          suggestedAddenda: suggestedDocs.suggested,
+        },
       },
     });
-  });
+  } catch (error) {
+    console.error('Error in chat endpoint:', error);
+    return c.json(
+      { reply: { text: 'Sorry, I encountered an error. Please try again.', proposedActions: [], chunks: [] } },
+      500
+    );
+  }
+});
 
 app.post("/approve", async (c) => {
-    const { sessionId, proposalId, approve } =
-      (await c.req.json().catch(() => ({}))) as { sessionId?: string; proposalId?: string; approve?: boolean };
-  
-    if (!sessionId || !proposalId || typeof approve !== "boolean") {
-      return c.json({ error: "Missing sessionId/proposalId/approve" }, 400);
+  try {
+    const body = await c.req.json();
+    const { sessionId, actionId, action, payload } = body;
+
+    if (!sessionId || !actionId) {
+      return c.json({ error: "Missing sessionId or actionId" }, 400);
     }
+
+    const sessionAction = SessionManager.updateActionStatus(sessionId, actionId, "approved");
+    if (!sessionAction) {
+      return c.json({ error: "Action not found" }, 404);
+    }
+
+    // Execute the approved action
+    let result = null;
+    
+    switch (action) {
+      case 'send-docs':
+        result = await executeSendDocs(sessionId, payload);
+        break;
+      case 'prefill-docs':
+        result = await executePrefillDocs(sessionId, payload);
+        break;
+      case 'request-info':
+        result = await executeRequestInfo(sessionId, payload);
+        break;
+      case 'attach-addendum':
+        result = await executeAttachAddendum(sessionId, payload);
+        break;
+      default:
+        console.log("✅ Executing action:", sessionAction);
+    }
+
+    return c.json({ action: sessionAction, result });
+  } catch (error) {
+    console.error('Error in approve endpoint:', error);
+    return c.json({ error: "Failed to execute action" }, 500);
+  }
+});
+
+app.get("/actions", (c) => {
+  const sessionId = c.req.query("sessionId");
+  if (!sessionId) {
+    return c.json({ error: "Missing sessionId" }, 400);
+  }
   
-    const store = actionsBySession.get(sessionId);
-    if (!store) return c.json({ error: "No actions for session" }, 404);
+  const actions = SessionManager.getActions(sessionId);
+  return c.json({ actions });
+});
+
+// Parse intent endpoint
+app.post("/parse-intent", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { text } = ParseIntentRequestSchema.parse(body);
+
+    const result = await DealIntentParser.parseIntent(text);
+    
+    return c.json({
+      values: result.values,
+      confidence: result.confidence,
+      missingFields: result.missingFields,
+      suggestedQuestions: result.suggestedQuestions,
+    });
+  } catch (error) {
+    console.error('Error in parse-intent endpoint:', error);
+    return c.json({ error: "Failed to parse intent" }, 500);
+  }
+});
+
+// Send documents endpoint
+app.post("/send-docs", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { templateIds, submitters, values, dealIntent } = SendDocsRequestSchema.parse(body);
+
+    // Use mock service for development (replace with real DocuSeal in production)
+    const result = await DocuSealService.mockSendDocuments({
+      templateIds,
+      submitters,
+      values,
+    });
+
+    return c.json(result);
+  } catch (error) {
+    console.error('Error in send-docs endpoint:', error);
+    return c.json({ error: "Failed to send documents" }, 500);
+  }
+});
+
+// DocuSeal webhook endpoint
+app.post("/docuseal/webhook", async (c) => {
+  try {
+    const body = await c.req.json();
+    const { event, submission } = DocuSealService.processWebhook(body);
+
+    // Update submission status in session
+    // Note: You'll need to implement a way to map submission IDs to session IDs
+    // For now, we'll just log the webhook
+    console.log(`DocuSeal webhook: ${event} for submission ${submission.id}`);
+
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Error in DocuSeal webhook:', error);
+    return c.json({ error: "Failed to process webhook" }, 500);
+  }
+});
+
+// Get session summary
+app.get("/session/:sessionId", (c) => {
+  const sessionId = c.req.param("sessionId");
+  const session = SessionManager.getSession(sessionId);
+  const summary = SessionManager.getSessionSummary(sessionId);
   
-    const action = store.get(proposalId);
-    if (!action) return c.json({ error: "Proposal not found" }, 404);
-  
-    action.status = approve ? "approved" : "rejected";
-    store.set(proposalId, action);
-  
-    // TODO: if approved, actually execute the tool (Trello/Calendar/etc.)
-    if (approve) console.log("✅ Executing action:", action);
-  
-    return c.json({ action });
+  return c.json({
+    session: {
+      sessionId: session.sessionId,
+      messageCount: session.messages.length,
+      currentDeal: session.currentDeal,
+      selectedDocs: session.selectedDocs,
+      submissions: session.submissions,
+    },
+    summary,
   });
-  
-  app.get("/actions", (c) => {
-    const sessionId = c.req.query("sessionId");
-    const store = sessionId ? actionsBySession.get(sessionId) : undefined;
-    const actions = store ? Array.from(store.values()) : [];
-    return c.json({ actions });
+});
+
+// Get available documents
+app.get("/documents", (c) => {
+  return c.json({
+    documents: Object.entries(DOCUMENT_RULES).map(([key, rule]) => ({
+      id: key,
+      name: rule.name,
+      category: rule.category,
+      requiredFields: rule.requiredFields,
+      autoInclude: rule.autoInclude,
+    })),
   });
+});
+
+// Helper functions for action execution
+async function executeSendDocs(sessionId: string, payload: any) {
+  const session = SessionManager.getSession(sessionId);
+  const dealIntent = session.currentDeal;
+  
+  // Generate field mappings
+  const fieldMappings = DocumentAutomation.generateFieldMappings(dealIntent, payload.suggestedDocs || []);
+  
+  // Generate signer roles
+  const signers = DocumentAutomation.generateSignerRoles(dealIntent);
+  
+  // Get template IDs for selected documents
+  const templateIds = (payload.suggestedDocs || []).map((docKey: string) => {
+    const rule = DOCUMENT_RULES[docKey as DocumentRuleKey];
+    return rule?.templateId;
+  }).filter(Boolean);
+
+  if (templateIds.length === 0) {
+    throw new Error('No valid templates found');
+  }
+
+  // Send documents
+  const result = await DocuSealService.mockSendDocuments({
+    templateIds,
+    submitters: signers,
+    values: fieldMappings,
+  });
+
+  // Store submissions in session
+  for (const submissionId of result.submissionIds) {
+    const mockSubmission = await DocuSealService.mockCreateSubmission({
+      templateId: templateIds[0], // Simplified for mock
+      submitters: signers,
+      values: fieldMappings,
+    });
+    mockSubmission.id = submissionId;
+    SessionManager.addSubmission(sessionId, mockSubmission);
+  }
+
+  return result;
+}
+
+async function executePrefillDocs(sessionId: string, payload: any) {
+  const session = SessionManager.getSession(sessionId);
+  const dealIntent = session.currentDeal;
+  
+  // Generate field mappings
+  const fieldMappings = DocumentAutomation.generateFieldMappings(dealIntent, payload.suggestedDocs || []);
+  
+  // Get document summary
+  const summary = DocumentAutomation.getDocumentSummary(payload.suggestedDocs || [], dealIntent);
+  
+  return {
+    fieldMappings,
+    summary,
+    message: `Documents prepared with ${Object.keys(fieldMappings).length} fields. ${summary.estimatedTime} estimated preparation time.`,
+  };
+}
+
+async function executeRequestInfo(sessionId: string, payload: any) {
+  const session = SessionManager.getSession(sessionId);
+  const dealIntent = session.currentDeal;
+  
+  // Generate follow-up questions
+  const questions = DealIntentParser.generateFollowUpQuestions(
+    payload.missingFields || [],
+    dealIntent
+  );
+  
+  return {
+    questions,
+    message: `Please provide the following information: ${questions.join(', ')}`,
+  };
+}
+
+async function executeAttachAddendum(sessionId: string, payload: any) {
+  const session = SessionManager.getSession(sessionId);
+  const dealIntent = session.currentDeal;
+  
+  // Get suggested addenda
+  const suggestedDocs = DocumentAutomation.getSuggestedDocuments(dealIntent);
+  
+  return {
+    suggestedAddenda: suggestedDocs.suggested,
+    message: `Suggested addenda: ${suggestedDocs.suggested.join(', ')}`,
+  };
+}
   
 export default app;
