@@ -38,7 +38,7 @@ export class DocumentAutomation {
    * Get document templates that should be auto-included
    */
   static getAutoIncludeDocuments(dealIntent: DealIntent): DocumentRuleKey[] {
-    const autoInclude: DocumentRuleKey[] = [];
+    const autoIncludeDocs: DocumentRuleKey[] = [];
 
     Object.entries(DOCUMENT_RULES).forEach(([key, rule]) => {
       if (!rule.autoInclude) return;
@@ -62,11 +62,11 @@ export class DocumentAutomation {
       }
 
       if (shouldInclude) {
-        autoInclude.push(key as DocumentRuleKey);
+        autoIncludeDocs.push(key as DocumentRuleKey);
       }
     });
 
-    return autoInclude;
+    return autoIncludeDocs;
   }
 
   /**
@@ -85,7 +85,7 @@ export class DocumentAutomation {
 
     selectedDocs.forEach(docKey => {
       const rule = DOCUMENT_RULES[docKey];
-      if (!rule) return;
+      if (!rule || !rule.requiredFields) return;
 
       const missing = rule.requiredFields.filter(field => !dealIntent[field as keyof DealIntent]);
       
@@ -228,7 +228,7 @@ export class DocumentAutomation {
 
     selectedDocs.forEach(docKey => {
       const rule = DOCUMENT_RULES[docKey];
-      if (!rule) return;
+      if (!rule || !rule.requiredFields) return;
 
       rule.requiredFields.forEach(field => {
         allRequiredFields.add(field);

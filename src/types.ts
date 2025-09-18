@@ -58,7 +58,7 @@ export const ChatRequestSchema = z.object({
   jurisdiction: z.string().default('MD'),
   context: z.object({
     selectedDocs: z.array(z.string()).optional(),
-    parties: z.record(z.string(), z.string()).optional(),
+    parties: z.record(z.string(), z.any()).optional(),
     currentDeal: DealIntentSchema.optional(),
   }).optional(),
 });
