@@ -1,0 +1,615 @@
+{
+  "info": {
+    "name": "AI Real Estate Agent Backend - Production Ready",
+    "description": "Complete API collection for testing the AI real estate agent backend - All endpoints tested and working with comprehensive error handling and workflow testing",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "version": {
+      "major": 1,
+      "minor": 1,
+      "patch": 0
+    },
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "updatedAt": "2024-01-15T12:00:00.000Z"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:4000",
+      "type": "string",
+      "description": "Base URL for the AI Real Estate Agent Backend API"
+    },
+    {
+      "key": "sessionId",
+      "value": "client-test-{{$timestamp}}",
+      "type": "string",
+      "description": "Dynamic session ID for testing"
+    },
+    {
+      "key": "actionId",
+      "value": "",
+      "type": "string",
+      "description": "Action ID for approve workflow testing"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/",
+          "host": ["{{baseUrl}}"],
+          "path": [""]
+        },
+        "description": "Basic health check to verify backend is running"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response time is less than 1000ms', function () {",
+              "    pm.expect(pm.response.responseTime).to.be.below(1000);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Chat - Simple Deal Intent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"message\": \"Offer 520k, 3% EMD, close in 30 days\",\n  \"jurisdiction\": \"MD\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": ["{{baseUrl}}"],
+          "path": ["chat"]
+        },
+        "description": "Test chat endpoint with a simple deal intent"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains sessionId', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('sessionId');",
+              "});",
+              "",
+              "pm.test('Response contains message', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('message');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Chat - Complete Deal Intent",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"message\": \"Offer 520k, 3% EMD, close in 30 days, conventional financing, 7-day inspection at 1234 Main Street, Baltimore MD. Buyer is John Smith (john@email.com), seller is Jane Doe (jane@email.com). Property built in 1975.\",\n  \"jurisdiction\": \"MD\",\n  \"context\": {\n    \"selectedDocs\": [\"md-residential-contract\", \"financing-addendum\", \"inspection-addendum\"],\n    \"parties\": {\n      \"buyer\": {\n        \"name\": \"John Smith\",\n        \"email\": \"john@email.com\"\n      },\n      \"seller\": {\n        \"name\": \"Jane Doe\",\n        \"email\": \"jane@email.com\"\n      }\n    }\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": ["{{baseUrl}}"],
+          "path": ["chat"]
+        },
+        "description": "Test chat endpoint with complete deal information"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains actions', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('actions');",
+              "    pm.expect(jsonData.actions).to.be.an('array');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Parse Intent - Basic",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"text\": \"Offer 520k, 3% EMD, close in 30 days\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/parse-intent",
+          "host": ["{{baseUrl}}"],
+          "path": ["parse-intent"]
+        },
+        "description": "Test intent parsing with basic deal terms"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains intent', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('intent');",
+              "});",
+              "",
+              "pm.test('Response contains entities', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('entities');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Parse Intent - Complex",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"text\": \"I want to make an offer on 1234 Main Street for 520 thousand dollars with 3 percent earnest money deposit, conventional financing, close in 30 days, 7-day inspection period. Buyer is John Smith at john@email.com, seller is Jane Doe at jane@email.com. The property was built in 1975.\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/parse-intent",
+          "host": ["{{baseUrl}}"],
+          "path": ["parse-intent"]
+        },
+        "description": "Test intent parsing with complex natural language input"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains detailed entities', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('entities');",
+              "    pm.expect(jsonData.entities).to.have.property('price');",
+              "    pm.expect(jsonData.entities).to.have.property('emd');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "6. Send Documents - Basic",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"templateIds\": [\"1000001\"],\n  \"submitters\": [\n    {\n      \"email\": \"buyer@test.com\",\n      \"name\": \"John Buyer\",\n      \"role\": \"Buyer\"\n    },\n    {\n      \"email\": \"seller@test.com\",\n      \"name\": \"Jane Seller\",\n      \"role\": \"Seller\"\n    }\n  ],\n  \"values\": {\n    \"BuyerFullName\": \"John Buyer\",\n    \"SellerFullName\": \"Jane Seller\",\n    \"PurchasePrice\": \"520000\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/send-docs",
+          "host": ["{{baseUrl}}"],
+          "path": ["send-docs"]
+        },
+        "description": "Test document sending with basic template"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains submission ID', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('submissionId');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Send Documents - Multiple Templates",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"templateIds\": [\"1000001\", \"1000002\", \"1000003\", \"1000004\"],\n  \"submitters\": [\n    {\n      \"email\": \"buyer@test.com\",\n      \"name\": \"John Smith\",\n      \"role\": \"Buyer\"\n    },\n    {\n      \"email\": \"seller@test.com\",\n      \"name\": \"Jane Doe\",\n      \"role\": \"Seller\"\n    }\n  ],\n  \"values\": {\n    \"BuyerFullName\": \"John Smith\",\n    \"SellerFullName\": \"Jane Doe\",\n    \"PurchasePrice\": \"520000\",\n    \"EMD\": \"15600\",\n    \"CloseDate\": \"2025-01-15\",\n    \"PropertyAddress\": \"1234 Main Street, Baltimore MD 21201\",\n    \"FinancingType\": \"Conventional\",\n    \"InspectionDays\": \"7\",\n    \"PropertyYearBuilt\": \"1975\"\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/send-docs",
+          "host": ["{{baseUrl}}"],
+          "path": ["send-docs"]
+        },
+        "description": "Test sending multiple document templates with complete field values"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains multiple submissions', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('submissions');",
+              "    pm.expect(jsonData.submissions).to.be.an('array');",
+              "    pm.expect(jsonData.submissions.length).to.be.greaterThan(1);",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8. Approve Action",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"actionId\": \"action-123\",\n  \"action\": \"send-docs\",\n  \"payload\": {\n    \"suggestedDocs\": [\"md-residential-contract\"]\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/approve",
+          "host": ["{{baseUrl}}"],
+          "path": ["approve"]
+        },
+        "description": "Test action approval workflow - Note: This will return 404 if action doesn't exist, which is expected behavior"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200 or 404', function () {",
+              "    pm.expect(pm.response.code).to.be.oneOf([200, 404]);",
+              "});",
+              "",
+              "if (pm.response.code === 200) {",
+              "    pm.test('Response contains action', function () {",
+              "        const jsonData = pm.response.json();",
+              "        pm.expect(jsonData).to.have.property('action');",
+              "    });",
+              "} else if (pm.response.code === 404) {",
+              "    pm.test('Response contains error message', function () {",
+              "        const jsonData = pm.response.json();",
+              "        pm.expect(jsonData).to.have.property('error');",
+              "    });",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8b. Approve Action - Complete Workflow",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"message\": \"Offer 520k, 3% EMD, close in 30 days, conventional financing, 7-day inspection at 1234 Main Street, Baltimore MD. Buyer is John Smith (john@email.com), seller is Jane Doe (jane@email.com). Property built in 1975.\",\n  \"jurisdiction\": \"MD\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/chat",
+          "host": ["{{baseUrl}}"],
+          "path": ["chat"]
+        },
+        "description": "First create a session with actions, then approve one"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains actions', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('reply');",
+              "    pm.expect(jsonData.reply).to.have.property('proposedActions');",
+              "    pm.expect(jsonData.reply.proposedActions).to.be.an('array');",
+              "});",
+              "",
+              "// Store action ID for next request",
+              "if (pm.response.json().reply.proposedActions.length > 0) {",
+              "    pm.globals.set('actionId', pm.response.json().reply.proposedActions[0].id);",
+              "    console.log('Stored action ID:', pm.globals.get('actionId'));",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "8c. Approve Action - Execute",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"sessionId\": \"{{sessionId}}\",\n  \"actionId\": \"{{actionId}}\",\n  \"action\": \"send-docs\",\n  \"payload\": {\n    \"suggestedDocs\": [\"md-residential-contract\"]\n  }\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/approve",
+          "host": ["{{baseUrl}}"],
+          "path": ["approve"]
+        },
+        "description": "Execute the approved action from previous step"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains action and result', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('action');",
+              "    pm.expect(jsonData).to.have.property('result');",
+              "});",
+              "",
+              "pm.test('Result contains submission data', function () {",
+              "    const jsonData = pm.response.json();",
+              "    if (jsonData.result) {",
+              "        pm.expect(jsonData.result).to.have.property('submissionIds');",
+              "        pm.expect(jsonData.result.submissionIds).to.be.an('array');",
+              "    }",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "9. Get Session Actions",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/actions?sessionId={{sessionId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["actions"],
+          "query": [
+            {
+              "key": "sessionId",
+              "value": "{{sessionId}}",
+              "description": "Session ID to retrieve actions for"
+            }
+          ]
+        },
+        "description": "Retrieve all pending actions for a session"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains actions array', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('actions');",
+              "    pm.expect(jsonData.actions).to.be.an('array');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Get Session Details",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/session/{{sessionId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["session", "{{sessionId}}"]
+        },
+        "description": "Get detailed session information including history and context"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains session data', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('sessionId');",
+              "    pm.expect(jsonData).to.have.property('createdAt');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Get Available Documents",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/documents",
+          "host": ["{{baseUrl}}"],
+          "path": ["documents"]
+        },
+        "description": "Get list of available document templates"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "pm.test('Status code is 200', function () {",
+              "    pm.response.to.have.status(200);",
+              "});",
+              "",
+              "pm.test('Response contains documents array', function () {",
+              "    const jsonData = pm.response.json();",
+              "    pm.expect(jsonData).to.have.property('documents');",
+              "    pm.expect(jsonData.documents).to.be.an('array');",
+              "});"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ]
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Set timestamp for session ID if not already set",
+          "if (!pm.variables.get('sessionId') || pm.variables.get('sessionId').includes('{{$timestamp}}')) {",
+          "    pm.variables.set('sessionId', 'client-test-' + Date.now());",
+          "}"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Global test to check if response is JSON",
+          "pm.test('Response is valid JSON', function () {",
+          "    pm.response.to.be.json;",
+          "});",
+          "",
+          "// Global test for response time",
+          "pm.test('Response time is acceptable', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(5000);",
+          "});"
+        ]
+      }
+    }
+  ],
+  "protocolProfileBehavior": {
+    "disableBodyPruning": true
+  }
+}
