@@ -19,7 +19,20 @@ import { DocuSealService } from './services/docuSealService';
 import { SessionManager } from './services/sessionManager';
 
 const app = new Hono();
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+
+// Initialize Anthropic client lazily to handle missing API keys gracefully
+function getAnthropic() {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.warn('ANTHROPIC_API_KEY not set, using mock responses');
+    return null;
+  }
+  try {
+    return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  } catch (error) {
+    console.warn('Anthropic initialization failed:', error);
+    return null;
+  }
+}
 
 app.get('/', (c) => c.text('🤖 AI Agent backend running!'));
 
@@ -46,13 +59,23 @@ app.post('/chat', async (c) => {
     SessionManager.updateDealIntent(sessionId, intentResult.values);
     
     // Get suggested documents based on deal intent
-    const suggestedDocs = DocumentAutomation.getSuggestedDocuments(intentResult.values);
-    
-    // Validate document requirements
-    const docValidation = DocumentAutomation.validateDocumentRequirements(
-      suggestedDocs.all,
-      intentResult.values
-    );
+    let suggestedDocs;
+    let docValidation;
+    try {
+      console.log('Getting suggested documents for:', intentResult.values);
+      suggestedDocs = DocumentAutomation.getSuggestedDocuments(intentResult.values);
+      console.log('Suggested docs result:', suggestedDocs);
+      docValidation = DocumentAutomation.validateDocumentRequirements(
+        suggestedDocs.all,
+        intentResult.values
+      );
+      console.log('Document validation result:', docValidation);
+    } catch (error) {
+      console.error('Error in document automation:', error);
+      console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+      suggestedDocs = { required: ['md-residential-contract'], suggested: [], all: ['md-residential-contract'] };
+      docValidation = { valid: false, missingFields: {}, suggestions: [] };
+    }
 
     // Generate follow-up questions for missing fields
     const followUpQuestions = DealIntentParser.generateFollowUpQuestions(
@@ -61,7 +84,13 @@ app.post('/chat', async (c) => {
     );
 
     // Validate deal completeness
-    const completeness = DealIntentParser.validateDealCompleteness(intentResult.values);
+    let completeness;
+    try {
+      completeness = DealIntentParser.validateDealCompleteness(intentResult.values);
+    } catch (error) {
+      console.error('Error in deal completeness validation:', error);
+      completeness = { isComplete: false, missingRequired: [], flaggedIssues: [] };
+    }
 
     // 1) Retrieval for context
     const chunks = await retrieve(message, 6);
@@ -98,12 +127,45 @@ Return STRICT JSON:
 
     const userContent = `User message:\n${message}\n\nDeal Context:\n${dealContext}\n\nRetrieved evidence:\n${contextBlock}`;
 
-    const msg = await anthropic.messages.create({
-      model: 'claude-3-5-sonnet-20241022',
-      max_tokens: 800,
-      system: sys,
-      messages: [{ role: 'user', content: userContent }],
-    });
+    const anthropicClient = getAnthropic();
+    let msg;
+    
+    if (anthropicClient) {
+      try {
+        msg = await anthropicClient.messages.create({
+          model: 'claude-3-5-sonnet-20241022',
+          max_tokens: 800,
+          system: sys,
+          messages: [{ role: 'user', content: userContent }],
+        });
+      } catch (error) {
+        console.warn('Anthropic API call failed, using mock response:', error);
+        msg = {
+          content: [
+            {
+              type: 'text',
+              text: JSON.stringify({
+                text: `I understand you're working on a real estate deal. Based on your message "${message}", I can help you with the following: ${intentResult.values.purchasePrice ? `Purchase price: $${intentResult.values.purchasePrice}` : 'Please provide purchase price'}, ${intentResult.values.emd ? `EMD: ${intentResult.values.emd}%` : 'Please provide EMD percentage'}, ${intentResult.values.closeDate ? `Close date: ${intentResult.values.closeDate}` : 'Please provide close date'}.`,
+                actions: []
+              })
+            }
+          ]
+        };
+      }
+    } else {
+      // Mock response when Anthropic is not available
+      msg = {
+        content: [
+          {
+            type: 'text',
+            text: JSON.stringify({
+              text: `I understand you're working on a real estate deal. Based on your message "${message}", I can help you with the following: ${intentResult.values.purchasePrice ? `Purchase price: $${intentResult.values.purchasePrice}` : 'Please provide purchase price'}, ${intentResult.values.emd ? `EMD: ${intentResult.values.emd}%` : 'Please provide EMD percentage'}, ${intentResult.values.closeDate ? `Close date: ${intentResult.values.closeDate}` : 'Please provide close date'}.`,
+              actions: []
+            })
+          }
+        ]
+      };
+    }
 
     // 3) Parse Claude JSON safely
     let text = `I understand you're working on a real estate deal. Let me help you with that.`;
@@ -197,6 +259,7 @@ Return STRICT JSON:
     });
   } catch (error) {
     console.error('Error in chat endpoint:', error);
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     return c.json(
       { reply: { text: 'Sorry, I encountered an error. Please try again.', proposedActions: [], chunks: [] } },
       500
