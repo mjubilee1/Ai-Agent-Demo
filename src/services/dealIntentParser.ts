@@ -114,7 +114,13 @@ Return ONLY valid JSON in this exact format:
       const missingFields: string[] = [];
     
     // Extract purchase price - handle multiple formats
-    let priceMatch = text.match(/(\d+(?:\.\d+)?)\s*k/i);
+    let priceMatch = text.match(/\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)/i);
+    if (!priceMatch) {
+      priceMatch = text.match(/purchase\s+price\s+(?:is|of)\s*\$?\s*(\d{1,3}(?:,\d{3})*(?:\.\d+)?)/i);
+    }
+    if (!priceMatch) {
+      priceMatch = text.match(/(\d+(?:\.\d+)?)\s*k/i);
+    }
     if (!priceMatch) {
       priceMatch = text.match(/(\d+(?:,\d{3})*(?:\.\d+)?)\s*(?:thousand|k)/i);
     }
@@ -123,41 +129,78 @@ Return ONLY valid JSON in this exact format:
     }
     console.log('Price match:', priceMatch);
     if (priceMatch) {
-      let price = parseFloat(priceMatch[1].replace(/,/g, ''));
-      if (text.toLowerCase().includes('k') || text.toLowerCase().includes('thousand')) {
+      let priceStr = priceMatch[1].replace(/,/g, '');
+      let price = parseFloat(priceStr);
+      console.log('Price string:', priceStr, '-> Parsed:', price);
+      
+      // Only check for k/thousand if the pattern matched k/thousand in the first place
+      // Look for patterns like "520k", "520 thousand", etc.
+      const patternHasK = /(\d+)\s*k\b/i.test(text);
+      const patternHasThousand = /(\d+)\s+thousand/i.test(text);
+      
+      console.log('Checking multiplier - patternHasK:', patternHasK, 'patternHasThousand:', patternHasThousand);
+      
+      if (patternHasK || patternHasThousand) {
         price *= 1000;
+        console.log('Applied k/thousand multiplier, new price:', price);
+      } else {
+        console.log('No k/thousand found in price pattern, keeping original price:', price);
       }
+      
       values.purchasePrice = price;
-      console.log('Extracted price:', values.purchasePrice);
+      console.log('Final extracted price:', values.purchasePrice);
     } else {
       missingFields.push('purchasePrice');
     }
     
-    // Extract EMD percentage - handle multiple formats
-    let emdMatch = text.match(/(\d+(?:\.\d+)?)\s*%\s*EMD/i);
+    // Extract EMD percentage - handle multiple formats  
+    let emdMatch = text.match(/earnest\s+money\s+(?:is\s+)?(\d+(?:\.\d+)?)\s*%/i);
     if (!emdMatch) {
-      emdMatch = text.match(/(\d+(?:\.\d+)?)\s*percent\s*(?:earnest\s*money\s*deposit|EMD)/i);
+      emdMatch = text.match(/(\d+(?:\.\d+)?)\s*%\s*(?:earnest|emd)/i);
     }
     if (!emdMatch) {
-      emdMatch = text.match(/(\d+(?:\.\d+)?)\s*%\s*earnest/i);
+      emdMatch = text.match(/emd\s+(?:is\s+)?(\d+(?:\.\d+)?)\s*%/i);
+    }
+    if (!emdMatch) {
+      emdMatch = text.match(/earnest\s+.*?(\d+(?:\.\d+)?)\s*%/i);
     }
     console.log('EMD match:', emdMatch);
     if (emdMatch) {
-      values.emd = parseFloat(emdMatch[1]);
-      console.log('Extracted EMD:', values.emd);
+      const emdPercentage = parseFloat(emdMatch[1]);
+      // Convert percentage to dollar amount if purchase price is available
+      if (values.purchasePrice) {
+        values.emd = (emdPercentage / 100) * values.purchasePrice;
+        console.log('Extracted EMD (as dollars):', values.emd);
+      } else {
+        // Store as percentage for now if no purchase price
+        values.emd = emdPercentage;
+        console.log('Extracted EMD (as percentage):', values.emd);
+        missingFields.push('purchasePrice');
+      }
     } else {
       missingFields.push('emd');
     }
     
-    // Extract close date
-    const closeMatch = text.match(/close\s+in\s+(\d+)\s+days/i);
+    // Extract close date - handle multiple formats
+    let closeMatch = text.match(/close\s+(?:date\s+)?(?:is\s+)?(December|January|February|March|April|May|June|July|August|September|October|November)\s+(\d{1,2})(?:st|nd|rd|th)?,\s+(\d{4})/i);
     if (closeMatch) {
-      const days = parseInt(closeMatch[1]);
-      const closeDate = new Date();
-      closeDate.setDate(closeDate.getDate() + days);
-      values.closeDate = closeDate.toISOString().split('T')[0];
+      const month = closeMatch[1];
+      const day = closeMatch[2];
+      const year = closeMatch[3];
+      const dateStr = `${year}-${String(new Date(`${month} 1, ${year}`).getMonth() + 1).padStart(2, '0')}-${day.padStart(2, '0')}`;
+      values.closeDate = dateStr;
+      console.log('Extracted close date:', values.closeDate);
     } else {
-      missingFields.push('closeDate');
+      closeMatch = text.match(/close\s+in\s+(\d+)\s+days/i);
+      if (closeMatch) {
+        const days = parseInt(closeMatch[1]);
+        const closeDate = new Date();
+        closeDate.setDate(closeDate.getDate() + days);
+        values.closeDate = closeDate.toISOString().split('T')[0];
+        console.log('Extracted close date (relative):', values.closeDate);
+      } else {
+        missingFields.push('closeDate');
+      }
     }
     
     // Check for financing type
@@ -187,18 +230,20 @@ Return ONLY valid JSON in this exact format:
       missingFields.push('propertyAddress');
     }
     
-    // Extract buyer info
-    const buyerMatch = text.match(/buyer\s+is\s+([A-Za-z\s]+)\s*\(([^)]+@[^)]+)\)/i);
+    // Extract buyer info - handle multiple formats
+    let buyerMatch = text.match(/buyer\s+is\s+([A-Za-z\s]+)\s*(?:at|\(|@)\s*([^\s\)]+@[^\s\)]+)/i);
     if (buyerMatch) {
       values.buyerName = buyerMatch[1].trim();
-      values.buyerEmail = buyerMatch[2].trim();
+      values.buyerEmail = buyerMatch[2].replace(/\.$/, '').trim(); // Remove trailing period
+      console.log('Extracted buyer:', values.buyerName, values.buyerEmail);
     }
     
-    // Extract seller info
-    const sellerMatch = text.match(/seller\s+is\s+([A-Za-z\s]+)\s*\(([^)]+@[^)]+)\)/i);
+    // Extract seller info - handle multiple formats
+    let sellerMatch = text.match(/seller\s+is\s+([A-Za-z\s]+)\s*(?:at|\(|@)\s*([^\s\)]+@[^\s\)]+)/i);
     if (sellerMatch) {
       values.sellerName = sellerMatch[1].trim();
-      values.sellerEmail = sellerMatch[2].trim();
+      values.sellerEmail = sellerMatch[2].replace(/\.$/, '').trim(); // Remove trailing period
+      console.log('Extracted seller:', values.sellerName, values.sellerEmail);
     }
     
     // Extract property year built
@@ -277,7 +322,8 @@ Return ONLY valid JSON in this exact format:
     const flaggedIssues: string[] = [];
     
     // Check for potential issues
-    if (deal.purchasePrice && deal.emd && (deal.emd / 100) * deal.purchasePrice > deal.purchasePrice * 0.1) {
+    // EMD is stored as dollar amount, so compare directly to purchase price
+    if (deal.purchasePrice && deal.emd && deal.emd / deal.purchasePrice > 0.1) {
       flaggedIssues.push('EMD amount seems high (>10% of purchase price)');
     }
     
@@ -286,8 +332,12 @@ Return ONLY valid JSON in this exact format:
       const today = new Date();
       const daysDiff = Math.ceil((closeDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
       
-      if (daysDiff < 7) {
+      // Only flag if date is in the future and very soon
+      if (daysDiff > 0 && daysDiff < 7) {
         flaggedIssues.push('Close date is very soon (<7 days)');
+      }
+      if (daysDiff < 0) {
+        flaggedIssues.push('Close date is in the past');
       }
       if (daysDiff > 90) {
         flaggedIssues.push('Close date is far in the future (>90 days)');
