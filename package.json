@@ -3,10 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "dev-backend": "tsx watch src/server.ts",
-    "build": "next build --turbopack",
-    "start": "next start",
+    "dev": "node init && next dev --turbopack",
+    "dev-backend": "node init && tsx watch src/server.ts",
+    "build": "node init && next build --turbopack",
+    "start": "node init && next start",
     "lint": "eslint",
     "test-backend": "tsx src/test-backend.ts"
   },

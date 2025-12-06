@@ -18,22 +18,42 @@ export class DocuSealService {
 
     try {
       const response = await fetch(`${this.API_BASE}/submissions`, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'X-Auth-Token': this.API_KEY,
-          'Content-Type': 'application/json',
+          "X-Auth-Token": this.API_KEY,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           template_id: data.templateId,
-          submitters: data.submitters.map(submitter => ({
-            email: submitter.email,
-            name: submitter.name,
-            role: submitter.role,
-          })),
-          values: data.values || {},
+          send_email: true,
+          submitters: (data.submitters ?? [])
+            .filter((s) => (s.role ?? "").trim().toLowerCase() === "buyer agent")
+            .map((s) => ({
+              email: "mjubil96@gmail.com",
+              name: s.name,
+              role: "Buyer Agent", // keep exact casing for DocuSeal
+              fields: Object.entries(data.values || {}).map(([name, default_value]) => ({
+                name,
+                default_value,
+              })),
+            })),
         }),
-      });
+      });          
 
+      console.log(JSON.stringify({
+        template_id: data.templateId,
+        send_email: true,
+        submitters: data.submitters.map((s) => ({
+          email: s.email,
+          name: s.name,
+          role: this.normalizeRole(s.role),
+          fields: Object.entries(data.values || {}).map(([name, default_value]) => ({
+            name,
+            default_value,
+          })),
+        })),
+        // remove top-level fields when using submitter fields
+      }))
       if (!response.ok) {
         const errorText = await response.text();
         throw new Error(`DocuSeal API error: ${response.status} - ${errorText}`);
@@ -218,6 +238,22 @@ export class DocuSealService {
       console.error('Error processing DocuSeal webhook:', error);
       throw error;
     }
+  }
+
+  private static normalizeRole(role?: string) {
+    if (!role) return role;
+  
+    const key = role.trim().toLowerCase();
+  
+    const ROLE_MAP: Record<string, string> = {
+      "buyer": "Buyer",
+      "buyer agent": "Buyer Agent",
+      "seller agent": "Seller Agent",
+      "seller": "Seller",
+      // add your template roles here exactly as DocuSeal expects them
+    };
+  
+    return ROLE_MAP[key] ?? role; // fallback to original if unknown
   }
 
   /**
