@@ -113,7 +113,6 @@ export class DocumentAutomation {
 
     // Map deal fields to document fields
     const fieldMappings: Record<string, string> = {
-      purchasePrice: 'purchase_price',
       emd: 'earnest_money_deposit',
       closeDate: 'closing_date',
       financingType: 'financing_type',
@@ -121,9 +120,17 @@ export class DocumentAutomation {
       propertyAddress: 'property_address',
       buyerName: 'buyer_name',
       buyerEmail: 'buyer_email',
+      buyerRole: 'Buyer',
       sellerName: 'seller_name',
       sellerEmail: 'seller_email',
-      propertyYearBuilt: 'property_year_built',
+      sellerRole: 'Seller',
+      purchasePrice: 'purchase_price',
+      buyerAgentName: 'buyer_agent_name',
+      buyerAgentEmail: 'buyer_agent_email',
+      buyerAgentRole: 'Buyer Agent',
+      sellerAgentName: 'seller_agent_name',
+      sellerAgentEmail: 'seller_agent_email',
+      sellerAgentRole: 'Seller Agent',
     };
 
     // Create mappings for each field that exists
@@ -177,7 +184,7 @@ export class DocumentAutomation {
       signers.push({
         email: dealIntent.buyerEmail,
         name: dealIntent.buyerName,
-        role: 'buyer',
+        role: 'Buyer',
       });
     }
 
@@ -186,24 +193,24 @@ export class DocumentAutomation {
       signers.push({
         email: dealIntent.sellerEmail,
         name: dealIntent.sellerName,
-        role: 'seller',
+        role: 'Seller',
       });
     }
 
     // Add default roles if names/emails not provided
-    if (!dealIntent.buyerName || !dealIntent.buyerEmail) {
+    if (!dealIntent.buyerAgentName || !dealIntent.buyerAgentEmail) {
       signers.push({
         email: 'buyer@example.com',
         name: 'Buyer Name',
-        role: 'buyer',
+        role: 'Buyer Agent',
       });
     }
 
-    if (!dealIntent.sellerName || !dealIntent.sellerEmail) {
+    if (!dealIntent.sellerAgentName || !dealIntent.sellerAgentEmail) {
       signers.push({
         email: 'seller@example.com',
         name: 'Seller Name',
-        role: 'seller',
+        role: 'Seller Agent',
       });
     }
 
