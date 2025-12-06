@@ -1,6 +1,6 @@
-import 'dotenv/config';
 import Anthropic from "@anthropic-ai/sdk";
-import { DealIntentSchema, DealIntent, ParseIntentResponseSchema } from "../types";
+import 'dotenv/config';
+import { DealIntent, ParseIntentResponseSchema } from "../types";
 
 // Initialize Anthropic client lazily to handle missing API keys gracefully
 function getAnthropic() {
@@ -47,15 +47,13 @@ Return ONLY valid JSON in this exact format:
   "suggestedQuestions": ["question1", "question2"]
 }`;
 
-  static async parseIntent(text: string): Promise<{
+  static async parseIntent(text: string, existing?: Partial<DealIntent>): Promise<{
     values: DealIntent;
     confidence: number;
     missingFields: string[];
     suggestedQuestions: string[];
   }> {
-    console.log('parseIntent called with text:', text);
     const anthropicClient = getAnthropic();
-    console.log('Anthropic client available:', !!anthropicClient);
     
     if (!anthropicClient) {
       // Use mock parsing when Anthropic is not available
@@ -65,10 +63,11 @@ Return ONLY valid JSON in this exact format:
 
     try {
       const message = await anthropicClient.messages.create({
-        model: 'claude-3-5-sonnet-20241022',
+        model: 'claude-sonnet-4-5-20250929',
         max_tokens: 1000,
         system: this.SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: text }],
+        messages: [{ role: 'user',  content: `Existing deal (may be partial):\n${JSON.stringify(existing ?? {}, null, 2)}\n\nNew message:\n${text}`
+        }],
       });
 
       const responseText = message.content
@@ -77,7 +76,12 @@ Return ONLY valid JSON in this exact format:
         .trim();
 
       // Extract JSON from response
-      const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+      const cleaned = responseText
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/```$/i, '')
+      .trim();
+
+      const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
         throw new Error('No JSON found in response');
       }

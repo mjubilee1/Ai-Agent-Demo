@@ -1,7 +1,7 @@
-import { DocuSealSubmission, SendDocsRequestSchema } from "../types";
+import { DocuSealSubmission } from "../types";
 
 export class DocuSealService {
-  private static readonly API_BASE = process.env.DOCUSEAL_API_URL || 'https://api.docuseal.co';
+  private static readonly API_BASE = process.env.DOCUSEAL_API_URL || 'https://api.docuseal.com';
   private static readonly API_KEY = process.env.DOCUSEAL_API_KEY;
 
   /**
@@ -20,7 +20,7 @@ export class DocuSealService {
       const response = await fetch(`${this.API_BASE}/submissions`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${this.API_KEY}`,
+          'X-Auth-Token': this.API_KEY,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
@@ -252,8 +252,8 @@ export class DocuSealService {
       'declined': 'declined',
       'cancelled': 'declined',
     };
-
-    return statusMap[status.toLowerCase()] || 'draft';
+    
+    return status ? statusMap[status.toLowerCase()] : 'draft';
   }
 
   /**

@@ -7,6 +7,7 @@ type ActionStatus = "proposed" | "approved" | "rejected";
 type Action = {
   id: string;
   title: string;
+  action: string;
   desc?: string;
   status: ActionStatus;
 };
@@ -15,7 +16,7 @@ type Chunk = { source: string; snippet: string };
 
 type Doc = { id: string; label: string; templateId: number; pdf?: string };
 
-type ProposedActionIn = { title?: string; desc?: string };
+type ProposedActionIn = { id: string, title?: string; desc?: string, tool: string };
 
 type ApiChatReply = {
   text?: string;
@@ -43,7 +44,7 @@ const DOCS: Doc[] = [
   {
     id: "md-contract-sale",
     label: "Residential Contract of Sale",
-    templateId: 1000001,
+    templateId: 2271959, // updated template id
     pdf: "/forms/md/Residential_Contract_of_Sale_sample.pdf",
   },
   {
@@ -277,7 +278,6 @@ export default function Home() {
           buyer: { name: buyerName, email: buyerEmail },
           seller: { name: sellerName, email: sellerEmail || undefined },
         },
-        // prefill: (window as any).__prefillValues || undefined
       },
       clientTs: Date.now(),
     };
@@ -306,11 +306,13 @@ export default function Home() {
       // proposed actions
       if (Array.isArray(data?.reply?.proposedActions) && data.reply!.proposedActions!.length) {
         const now = Date.now();
+        console.log(data.reply)
         const mapped: Action[] = data.reply!.proposedActions!.map(
           (a: ProposedActionIn, i: number): Action => ({
-            id: `api-${now}-${i}`,
+            id: a.id,
             title: a.title ?? "Proposed action",
             desc: a.desc,
+            action: a.tool,
             status: "proposed",
           })
         );
@@ -335,6 +337,7 @@ export default function Home() {
       items.map((a) => (a.id === proposalId ? { ...a, status: yes ? "approved" : "rejected" } : a))
     );
 
+    const action = actions.find((a) => a.id === proposalId);
     try {
       const res = await fetch("/api/approve", {
         method: "POST",
@@ -343,6 +346,8 @@ export default function Home() {
           sessionId,
           proposalId,
           approve: yes,
+          action: action?.action,
+          actionId: action?.id,
           context: {
             selectedDocs: DOCS.filter((d) => selectedDocIds.includes(d.id)).map((d) => ({
               id: d.id,
@@ -362,14 +367,7 @@ export default function Home() {
       if (!res.ok || !data?.action) {
         throw new Error(data?.error || "Approval failed");
       }
-
-      setActions((items) =>
-        items.map((a) => (a.id === data.action!.id ? { ...a, status: data.action!.status } : a))
-      );
-
-      window.alert(
-        "✅ Demo: This action would now execute (e.g., Trello/Calendar/DocuSeal). In this demo, no external tools are called."
-      );
+      setActions((items) => items.filter((a) => a.id !== data.action?.id));
     } catch {
       // revert optimistic update
       setActions((items) =>
@@ -390,7 +388,7 @@ export default function Home() {
             <div>
               <div style={s.h1}>ContractPilot MD</div>
               <div style={s.sub}>
-                Maryland contracts · Addenda engine · HITL approvals · Render deploy
+                Maryland contracts · Addenda engine · HITL approvals
               </div>
 
               {/* Document & party selector */}
@@ -459,41 +457,30 @@ export default function Home() {
                       (d) => d.templateId
                     );
 
-                    const res = await fetch("/api/send-docs", {
-                      method: "POST",
-                      headers: { "Content-Type": "application/json" },
-                      body: JSON.stringify({
-                        sessionId,
-                        templateIds: templates,
-                        submitters: [
-                          { role: "Buyer", name: buyerName, email: buyerEmail },
-                          ...(sellerEmail || sellerName
-                            ? [
-                                {
-                                  role: "Seller",
-                                  name: sellerName || "Seller",
-                                  email: sellerEmail || "seller@example.com",
-                                },
-                              ]
-                            : []),
-                        ],
-                        values: {
-                          BuyerFullName: buyerName,
-                          SellerFullName: sellerName,
-                          // PurchasePrice: "520000",
-                          // CloseDate: "2025-09-15",
-                          // EMD: "3%",
-                          // PropertyAddress: "1234 Main St, Baltimore, MD"
-                        },
-                      }),
-                    });
+                    const selectedDocs = DOCS.filter((d) => selectedDocIds.includes(d.id)).map((d) => ({
+                      id: d.id,
+                      label: d.label,
+                      templateId: d.templateId,
+                    }));
 
-                    const data: ApiSendDocsResponse = await res.json();
-                    if (!res.ok) return alert(`Failed to send: ${data?.error || "Unknown error"}`);
-                    alert(`Sent for signature.\nSubmission IDs: ${data.submissionIds?.join(", ")}`);
+                    const msg = [
+                      `Prepare documents for signature.`,
+                      `Buyer: ${buyerName} (${buyerEmail})`,
+                      sellerName || sellerEmail ? `Seller: ${sellerName || "Seller"} (${sellerEmail || "seller@example.com"})` : "",
+                      selectedDocs ? `Selected docs: ${selectedDocs.map((d) => d.label).join(',')}` : "Selected docs: (none)",
+                      // add these if you have them in state:
+                      // `Purchase price: ${purchasePrice}`,
+                      // `EMD: ${emd}`,
+                      // `Closing date: ${closeDate}`,
+                      // `Property address: ${propertyAddress}`,
+                    ]
+                      .filter(Boolean)
+                      .join("\n");
+                
+                    setMessage(msg);
                   }}
                 >
-                  Send for Signature
+                  Fill Chat With Deal Info                
                 </button>
 
                 <div style={s.docMeta}>
@@ -545,15 +532,20 @@ export default function Home() {
               )}
             </div>
             <div style={s.inputRow}>
-              <input
-                style={s.input}
+              <textarea
+                style={{ ...s.input, resize: "vertical", minHeight: 90, lineHeight: "1.35" }}
                 placeholder={loading ? "Thinking..." : "Type a message…"}
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
-                onKeyDown={(e) => (e.key === "Enter" ? send() : undefined)}
+                onKeyDown={(e) => {
+                  if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
                 disabled={loading}
               />
-              <button style={s.btn} onClick={send} disabled={loading}>
+              <button style={s.btn} onClick={send} disabled={loading || !message.trim()}>
                 {loading ? "..." : "Send"}
               </button>
             </div>
@@ -561,7 +553,7 @@ export default function Home() {
 
           {/* Proposed Actions */}
           <section style={s.card}>
-            <div style={s.cardTitle}>Proposed Actions (HITL)</div>
+            <div style={s.cardTitle}>Proposed Actions:</div>
             <div style={s.list}>
               {actions.map((a) => (
                 <div key={a.id} style={s.actionItem}>

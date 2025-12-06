@@ -28,13 +28,13 @@ importers:
         version: 4.9.4
       langsmith:
         specifier: ^0.3.63
-        version: 0.3.63(openai@5.15.0)
+        version: 0.3.63(openai@5.15.0(zod@3.25.76))
       next:
         specifier: 15.5.0
         version: 15.5.0(react-dom@19.1.0(react@19.1.0))(react@19.1.0)
       openai:
         specifier: ^5.15.0
-        version: 5.15.0
+        version: 5.15.0(zod@3.25.76)
       pg:
         specifier: ^8.16.3
         version: 8.16.3
@@ -44,6 +44,9 @@ importers:
       react-dom:
         specifier: 19.1.0
         version: 19.1.0(react@19.1.0)
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
     devDependencies:
       '@eslint/eslintrc':
         specifier: ^3
@@ -2138,6 +2141,9 @@ packages:
     resolution: {integrity: sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q==}
     engines: {node: '>=10'}
 
+  zod@3.25.76:
+    resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
+
 snapshots:
 
   '@anthropic-ai/sdk@0.60.0': {}
@@ -3562,7 +3568,7 @@ snapshots:
     dependencies:
       json-buffer: 3.0.1
 
-  langsmith@0.3.63(openai@5.15.0):
+  langsmith@0.3.63(openai@5.15.0(zod@3.25.76)):
     dependencies:
       '@types/uuid': 10.0.0
       chalk: 4.1.2
@@ -3572,7 +3578,7 @@ snapshots:
       semver: 7.7.2
       uuid: 10.0.0
     optionalDependencies:
-      openai: 5.15.0
+      openai: 5.15.0(zod@3.25.76)
 
   language-subtag-registry@0.3.23: {}
 
@@ -3704,7 +3710,9 @@ snapshots:
       define-properties: 1.2.1
       es-object-atoms: 1.1.1
 
-  openai@5.15.0: {}
+  openai@5.15.0(zod@3.25.76):
+    optionalDependencies:
+      zod: 3.25.76
 
   optionator@0.9.4:
     dependencies:
@@ -4272,3 +4280,5 @@ snapshots:
   yn@3.1.1: {}
 
   yocto-queue@0.1.0: {}
+
+  zod@3.25.76: {}

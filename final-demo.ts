@@ -5,10 +5,10 @@
  * Shows all requirements working with mock data
  */
 
+import { DealIntentParser } from './src/services/dealIntentParser';
 import { DocumentAutomation } from './src/services/documentAutomation';
 import { DocuSealService } from './src/services/docuSealService';
 import { SessionManager } from './src/services/sessionManager';
-import { DealIntentParser } from './src/services/dealIntentParser';
 
 async function runFullDemo() {
   console.log('🏠 COMPLETE AI REAL ESTATE AGENT DEMO');

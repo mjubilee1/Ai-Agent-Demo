@@ -2,23 +2,41 @@ import Anthropic from "@anthropic-ai/sdk";
 import 'dotenv/config';
 import { Hono } from 'hono';
 import { ingestChat } from "./ingest";
-import { retrieve } from './utils';
-import { 
-  ChatRequestSchema, 
-  ParseIntentRequestSchema, 
-  SendDocsRequestSchema, 
-  ApproveRequestSchema,
-  DocuSealWebhookSchema,
-  DealIntentSchema,
-  DOCUMENT_RULES,
-  DocumentRuleKey
-} from './types';
 import { DealIntentParser } from './services/dealIntentParser';
 import { DocumentAutomation } from './services/documentAutomation';
 import { DocuSealService } from './services/docuSealService';
 import { SessionManager } from './services/sessionManager';
+import {
+  ChatRequestSchema,
+  DOCUMENT_RULES,
+  DocumentRuleKey,
+  ParseIntentRequestSchema,
+  SendDocsRequestSchema
+} from './types';
+import { retrieve } from './utils';
 
 const app = new Hono();
+
+function extractJsonFromModel(raw: string) {
+  // 1) remove markdown code fences if present
+  const unfenced = raw
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+
+  // 2) find first { or [ and last } or ]
+  const start = unfenced.search(/[\{\[]/);
+  const endObj = unfenced.lastIndexOf("}");
+  const endArr = unfenced.lastIndexOf("]");
+  const end = Math.max(endObj, endArr);
+
+  if (start === -1 || end === -1 || end <= start) {
+    throw new Error(`No JSON found in model response. Head: ${unfenced.slice(0, 60)}`);
+  }
+
+  const jsonStr = unfenced.slice(start, end + 1);
+  return JSON.parse(jsonStr);
+}
 
 // Initialize Anthropic client lazily to handle missing API keys gracefully
 function getAnthropic() {
@@ -51,25 +69,26 @@ app.post('/chat', async (c) => {
 
     // Get current session
     const session = SessionManager.getSession(sessionId);
-    
+    const baseDeal = context?.currentDeal ?? session?.currentDeal ?? {};
+
     // Parse deal intent from message
     const intentResult = await DealIntentParser.parseIntent(message);
     
+    // merge: new fields override old, missing fields keep old
+    const mergedDeal = { ...baseDeal, ...intentResult.values };
+
     // Update session with new deal intent
-    SessionManager.updateDealIntent(sessionId, intentResult.values);
+    SessionManager.updateDealIntent(sessionId, mergedDeal);
     
     // Get suggested documents based on deal intent
     let suggestedDocs;
     let docValidation;
     try {
-      console.log('Getting suggested documents for:', intentResult.values);
-      suggestedDocs = DocumentAutomation.getSuggestedDocuments(intentResult.values);
-      console.log('Suggested docs result:', suggestedDocs);
+      suggestedDocs = DocumentAutomation.getSuggestedDocuments(mergedDeal);
       docValidation = DocumentAutomation.validateDocumentRequirements(
         suggestedDocs.all,
-        intentResult.values
+        mergedDeal
       );
-      console.log('Document validation result:', docValidation);
     } catch (error) {
       console.error('Error in document automation:', error);
       console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
@@ -80,13 +99,13 @@ app.post('/chat', async (c) => {
     // Generate follow-up questions for missing fields
     const followUpQuestions = DealIntentParser.generateFollowUpQuestions(
       intentResult.missingFields,
-      intentResult.values
+      mergedDeal
     );
 
     // Validate deal completeness
     let completeness;
     try {
-      completeness = DealIntentParser.validateDealCompleteness(intentResult.values);
+      completeness = DealIntentParser.validateDealCompleteness(mergedDeal);
     } catch (error) {
       console.error('Error in deal completeness validation:', error);
       completeness = { isComplete: false, missingRequired: [], flaggedIssues: [] };
@@ -103,7 +122,7 @@ app.post('/chat', async (c) => {
 
     const dealContext = `
 Current Deal State:
-${JSON.stringify(intentResult.values, null, 2)}
+${JSON.stringify(mergedDeal, null, 2)}
 
 Missing Fields: ${intentResult.missingFields.join(', ')}
 Confidence: ${intentResult.confidence}
@@ -133,7 +152,7 @@ Return STRICT JSON:
     if (anthropicClient) {
       try {
         msg = await anthropicClient.messages.create({
-          model: 'claude-3-5-sonnet-20241022',
+          model: 'claude-sonnet-4-5-20250929',
           max_tokens: 800,
           system: sys,
           messages: [{ role: 'user', content: userContent }],
@@ -145,7 +164,7 @@ Return STRICT JSON:
             {
               type: 'text',
               text: JSON.stringify({
-                text: `I understand you're working on a real estate deal. Based on your message "${message}", I can help you with the following: ${intentResult.values.purchasePrice ? `Purchase price: $${intentResult.values.purchasePrice}` : 'Please provide purchase price'}, ${intentResult.values.emd ? `EMD: ${intentResult.values.emd}%` : 'Please provide EMD percentage'}, ${intentResult.values.closeDate ? `Close date: ${intentResult.values.closeDate}` : 'Please provide close date'}.`,
+                text: `I understand you're working on a real estate deal. Based on your message "${message}", I can help you with the following: ${mergedDeal.purchasePrice ? `Purchase price: $${mergedDeal.purchasePrice}` : 'Please provide purchase price'}, ${mergedDeal.emd ? `EMD: ${mergedDeal.emd}%` : 'Please provide EMD percentage'}, ${mergedDeal.closeDate ? `Close date: ${mergedDeal.closeDate}` : 'Please provide close date'}.`,
                 actions: []
               })
             }
@@ -159,7 +178,7 @@ Return STRICT JSON:
           {
             type: 'text',
             text: JSON.stringify({
-              text: `I understand you're working on a real estate deal. Based on your message "${message}", I can help you with the following: ${intentResult.values.purchasePrice ? `Purchase price: $${intentResult.values.purchasePrice}` : 'Please provide purchase price'}, ${intentResult.values.emd ? `EMD: ${intentResult.values.emd}%` : 'Please provide EMD percentage'}, ${intentResult.values.closeDate ? `Close date: ${intentResult.values.closeDate}` : 'Please provide close date'}.`,
+              text: `I understand you're working on a real estate deal. Based on your message "${message}", I can help you with the following: ${mergedDeal.purchasePrice ? `Purchase price: $${mergedDeal.purchasePrice}` : 'Please provide purchase price'}, ${mergedDeal.emd ? `EMD: ${mergedDeal.emd}%` : 'Please provide EMD percentage'}, ${mergedDeal.closeDate ? `Close date: ${mergedDeal.closeDate}` : 'Please provide close date'}.`,
               actions: []
             })
           }
@@ -172,28 +191,12 @@ Return STRICT JSON:
     let proposedActions: Array<{ title: string; desc?: string; tool?: string }> = [];
 
     try {
-      const raw = msg.content
-        .map((p) => ('text' in p ? p.text : ''))
-        .join('')
-        .trim();
-
-      const jsonStrMatch = raw.match(/\{[\s\S]*\}$/);
-      const parsed = JSON.parse(jsonStrMatch ? jsonStrMatch[0] : raw);
-
-      if (parsed?.text) text = parsed.text;
-      if (Array.isArray(parsed?.actions)) {
-        proposedActions = parsed.actions.map((a: any) => ({
-          title: String(a.title || 'Proposed action'),
-          desc: a.desc ? String(a.desc) : undefined,
-          tool: a.tool ? String(a.tool) : undefined,
-        }));
-      }
     } catch (error) {
       console.error('Error parsing AI response:', error);
     }
 
     // Add system-generated actions based on deal state
-    if (intentResult.missingFields.length > 0) {
+    /*if (intentResult.missingFields.length > 0) {
       proposedActions.push({
         title: 'Request Missing Information',
         desc: `Need: ${intentResult.missingFields.join(', ')}`,
@@ -207,7 +210,7 @@ Return STRICT JSON:
         desc: `Ready to prepare ${suggestedDocs.all.length} document(s)`,
         tool: 'prefill-docs',
       });
-    }
+    }*/
 
     if (docValidation.valid && suggestedDocs.all.length > 0) {
       proposedActions.push({
@@ -228,7 +231,7 @@ Return STRICT JSON:
         tool: a.tool,
         payload: {
           suggestedDocs: suggestedDocs.all,
-          dealIntent: intentResult.values,
+          dealIntent: mergedDeal,
         },
       };
       SessionManager.addAction(sessionId, action);
@@ -250,7 +253,7 @@ Return STRICT JSON:
         proposedActions: withIds,
         chunks: chunks.map((c) => ({ source: c.source, snippet: c.snippet })),
         dealSummary: {
-          currentValues: intentResult.values,
+          currentValues: mergedDeal,
           missingFields: intentResult.missingFields,
           flaggedIssues: completeness.flaggedIssues,
           suggestedAddenda: suggestedDocs.suggested,
@@ -258,8 +261,8 @@ Return STRICT JSON:
       },
     });
   } catch (error) {
-    console.error('Error in chat endpoint:', error);
-    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+    console.log('Error in chat endpoint:', error);
+    console.log('Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     return c.json(
       { reply: { text: 'Sorry, I encountered an error. Please try again.', proposedActions: [], chunks: [] } },
       500
@@ -270,8 +273,7 @@ Return STRICT JSON:
 app.post("/approve", async (c) => {
   try {
     const body = await c.req.json();
-    const { sessionId, actionId, action, payload } = body;
-
+    const { sessionId, actionId, action, payload, context } = body;
     if (!sessionId || !actionId) {
       return c.json({ error: "Missing sessionId or actionId" }, 400);
     }
@@ -286,17 +288,17 @@ app.post("/approve", async (c) => {
     
     switch (action) {
       case 'send-docs':
-        result = await executeSendDocs(sessionId, payload);
+        result = await executeSendDocs(sessionId, context);
         break;
-      case 'prefill-docs':
-        result = await executePrefillDocs(sessionId, payload);
+      /*case 'prefill-docs':
+        result = await executePrefillDocs(sessionId, context);
         break;
       case 'request-info':
-        result = await executeRequestInfo(sessionId, payload);
+        result = await executeRequestInfo(sessionId, context);
         break;
       case 'attach-addendum':
-        result = await executeAttachAddendum(sessionId, payload);
-        break;
+        result = await executeAttachAddendum(sessionId, context);
+        break;*/
       default:
         console.log("✅ Executing action:", sessionAction);
     }
@@ -413,38 +415,50 @@ async function executeSendDocs(sessionId: string, payload: any) {
   const dealIntent = session.currentDeal;
   
   // Generate field mappings
-  const fieldMappings = DocumentAutomation.generateFieldMappings(dealIntent, payload.suggestedDocs || []);
+  const fieldMappings = DocumentAutomation.generateFieldMappings(dealIntent, payload.selectedDocs || []);
   
   // Generate signer roles
   const signers = DocumentAutomation.generateSignerRoles(dealIntent);
   
   // Get template IDs for selected documents
-  const templateIds = (payload.suggestedDocs || []).map((docKey: string) => {
-    const rule = DOCUMENT_RULES[docKey as DocumentRuleKey];
-    return rule?.templateId;
-  }).filter(Boolean);
+  const templateIds = (payload.selectedDocs ?? [])
+  .map((doc: any) => {
+    // doc is like { id, label, templateId }
+    const directKey = doc?.id as DocumentRuleKey | undefined;
+    const directRule = directKey ? DOCUMENT_RULES[directKey] : undefined;
+
+    // ✅ 1) direct match by key
+    if (directRule) return directRule.templateId;
+
+    // ✅ 2) fallback: find rule key by matching templateId
+    const byTemplateId = Object.entries(DOCUMENT_RULES).find(
+      ([, rule]) => rule?.templateId === doc?.templateId
+    );
+
+    if (byTemplateId) return byTemplateId[1].templateId;
+
+    // ✅ 3) optional fallback: match by name/label (if templateId missing)
+    const byName = Object.entries(DOCUMENT_RULES).find(
+      ([, rule]) =>
+        typeof doc?.label === "string" &&
+        typeof rule?.name === "string" &&
+        rule.name.toLowerCase().includes(doc.label.toLowerCase())
+    );
+
+    return byName?.[1]?.templateId ?? null;
+  })
+  .filter((x): x is string | number => x != null);
 
   if (templateIds.length === 0) {
     throw new Error('No valid templates found');
   }
 
   // Send documents
-  const result = await DocuSealService.mockSendDocuments({
+  const result = await DocuSealService.sendDocuments({
     templateIds,
     submitters: signers,
     values: fieldMappings,
   });
-
-  // Store submissions in session
-  for (const submissionId of result.submissionIds) {
-    const mockSubmission = await DocuSealService.mockCreateSubmission({
-      templateId: templateIds[0], // Simplified for mock
-      submitters: signers,
-      values: fieldMappings,
-    });
-    mockSubmission.id = submissionId;
-    SessionManager.addSubmission(sessionId, mockSubmission);
-  }
 
   return result;
 }
@@ -454,10 +468,10 @@ async function executePrefillDocs(sessionId: string, payload: any) {
   const dealIntent = session.currentDeal;
   
   // Generate field mappings
-  const fieldMappings = DocumentAutomation.generateFieldMappings(dealIntent, payload.suggestedDocs || []);
+  const fieldMappings = DocumentAutomation.generateFieldMappings(dealIntent, payload.selectedDocs || []);
   
   // Get document summary
-  const summary = DocumentAutomation.getDocumentSummary(payload.suggestedDocs || [], dealIntent);
+  const summary = DocumentAutomation.getDocumentSummary(payload.selectedDocs || [], dealIntent);
   
   return {
     fieldMappings,

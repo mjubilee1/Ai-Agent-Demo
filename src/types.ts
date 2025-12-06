@@ -1,19 +1,21 @@
 import { z } from 'zod';
 
-// Core deal intent parsing schemas
+const nullToUndef = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess((v) => (v === null ? undefined : v), schema);
+
 export const DealIntentSchema = z.object({
-  purchasePrice: z.number().positive().optional(),
-  emd: z.number().positive().optional(),
-  closeDate: z.string().optional(), // ISO date string
-  financingType: z.enum(['conventional', 'fha', 'va', 'cash', 'other']).optional(),
-  inspectionDays: z.number().min(0).optional(),
-  propertyAddress: z.string().optional(),
-  buyerName: z.string().optional(),
-  buyerEmail: z.string().email().optional(),
-  sellerName: z.string().optional(),
-  sellerEmail: z.string().email().optional(),
-  propertyYearBuilt: z.number().min(1800).max(new Date().getFullYear()).optional(),
-});
+  purchasePrice: nullToUndef(z.number().optional()),
+  closeDate: nullToUndef(z.string().optional()),
+  financingType: nullToUndef(z.enum(['conventional','fha','va','cash','other']).optional()),
+  inspectionDays: nullToUndef(z.number().optional()),
+  propertyAddress: nullToUndef(z.string().optional()),
+  buyerName: nullToUndef(z.string().optional()),
+  buyerEmail: nullToUndef(z.string().optional()),
+  sellerName: nullToUndef(z.string().optional()),
+  sellerEmail: nullToUndef(z.string().optional()),
+  propertyYearBuilt: nullToUndef(z.number().optional()),
+  emd: nullToUndef(z.number().optional()),
+}).partial();
 
 export type DealIntent = z.infer<typeof DealIntentSchema>;
 
@@ -51,13 +53,21 @@ export const DocuSealSubmissionSchema = z.object({
 
 export type DocuSealSubmission = z.infer<typeof DocuSealSubmissionSchema>;
 
+const DocRefSchema = z.object({
+  id: z.string(),
+  label: z.string(),
+  templateId: z.number(),
+});
+
 // API request/response schemas
 export const ChatRequestSchema = z.object({
   sessionId: z.string(),
   message: z.string(),
   jurisdiction: z.string().default('MD'),
   context: z.object({
-    selectedDocs: z.array(z.string()).optional(),
+    selectedDocs: z
+    .array(z.union([z.string(), DocRefSchema]))
+    .transform((arr) => arr.map((x) => (typeof x === "string" ? x : x.id))),
     parties: z.record(z.string(), z.any()).optional(),
     currentDeal: DealIntentSchema.optional(),
   }).optional(),
@@ -154,7 +164,7 @@ export type ChatSession = {
 export const DOCUMENT_RULES = {
   'md-residential-contract': {
     name: 'MD Residential Contract of Sale',
-    templateId: 'md-contract-template',
+    templateId: 2271959,    
     category: 'contract' as const,
     requiredFields: ['purchasePrice', 'emd', 'closeDate', 'propertyAddress', 'buyerName', 'sellerName'],
   },

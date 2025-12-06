@@ -1,4 +1,4 @@
-import { ChatSession, DealIntent, DocuSealSubmission, ProposedAction, DocumentRuleKey } from "../types";
+import { ChatSession, DealIntent, DocumentRuleKey, DocuSealSubmission, ProposedAction } from "../types";
 
 export class SessionManager {
   // In-memory storage - replace with database in production
